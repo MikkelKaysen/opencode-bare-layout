@@ -1,6 +1,6 @@
 # opencode-plugin-bare-layout
 
-OpenCode plugin (`bare-layout`) that manages git worktrees for repositories stored as a **bare** git repo, with every worktree nested directly under the bare root as `<bare-root>/<branch>`.
+OpenCode plugin (`bare-layout`) that manages git worktrees for repositories stored as a **bare** git repo, with linked worktrees nested beneath the bare root. Newly created worktrees use `<bare-root>/<branch>`.
 
 ## Purpose
 
@@ -20,7 +20,7 @@ repo.git/                        (bare repo, core.bare = true)
 └── hotfix/.../
 ```
 
-Detection requires that the git common dir is a bare repository and every linked worktree lives at `<bareRoot>/<branch>`.
+Detection requires that the git common dir is a bare repository and every linked worktree has an associated branch and lives beneath `<bareRoot>`. Existing worktree directory names do not need to match their branch names; when attaching to an existing branch, the plugin reuses Git's recorded worktree directory. Newly created worktrees continue to use `<bareRoot>/<branch>`.
 
 ## Commands
 

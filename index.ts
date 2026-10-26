@@ -1,5 +1,10 @@
 import { execFile } from "node:child_process";
-import { resolve as resolvePath } from "node:path";
+import {
+  isAbsolute as isAbsolutePath,
+  relative as relativePath,
+  resolve as resolvePath,
+  sep as pathSeparator,
+} from "node:path";
 import { Plugin } from "@opencode/plugin";
 import type { CommandInvocation } from "@opencode/plugin/promise/command";
 import { matchBranch } from "./branch-match.ts";
@@ -77,10 +82,10 @@ function isSafeBranch(ref: string): boolean {
  * Detects the bare-root layout from a directory inside the repository.
  * Returns the bare root when:
  *   - the git common dir is a bare repository, AND
- *   - every linked worktree lives at <bareRoot>/<branch>.
+ *   - every linked worktree has a branch and lives beneath the bare root.
  * Returns null otherwise.
  */
-async function detectBareLayout(startDir: string): Promise<string | null> {
+export async function detectBareLayout(startDir: string): Promise<string | null> {
   let common = await git(startDir, [
     "rev-parse",
     "--path-format=absolute",
@@ -98,7 +103,16 @@ async function detectBareLayout(startDir: string): Promise<string | null> {
   if (!list.ok) return null;
   for (const wt of parseWorktrees(list.out)) {
     if (wt.path === bareRoot) continue;
-    if (!wt.branch || wt.path !== bareRoot + "/" + wt.branch) return null;
+    const relative = relativePath(bareRoot, wt.path);
+    if (
+      !wt.branch ||
+      relative === "" ||
+      relative === ".." ||
+      relative.startsWith(".." + pathSeparator) ||
+      isAbsolutePath(relative)
+    ) {
+      return null;
+    }
   }
   return bareRoot;
 }
@@ -115,20 +129,24 @@ async function listLocalBranches(bareRoot: string): Promise<string[]> {
 }
 
 /**
- * Ensures a worktree exists at <bareRoot>/<branch>:
+ * Ensures a worktree exists for the branch, creating it at <bareRoot>/<branch>
+ * when one does not already exist:
  *   - existing branch -> git worktree add <dest> <branch>
  *   - missing branch  -> git worktree add -b <branch> <dest> <base>
  *     (base: explicit > neogit.baseBranch > master; only when allowNew)
- * Idempotent: returns <dest> immediately when the worktree already exists.
+ * Idempotent: returns the recorded directory when the worktree already exists.
  */
-async function ensureWorktree(
+export async function ensureWorktree(
   bareRoot: string,
   branch: string,
   opts: { allowNew: boolean; base?: string },
 ): Promise<string> {
-  const dest = bareRoot + "/" + branch;
   const list = await git(bareRoot, ["worktree", "list", "--porcelain"]);
-  if (list.ok && list.out.split("\n").includes("worktree " + dest)) return dest;
+  if (list.ok) {
+    const existing = parseWorktrees(list.out).find((wt) => wt.branch === branch);
+    if (existing) return existing.path;
+  }
+  const dest = bareRoot + "/" + branch;
   const head = await git(bareRoot, [
     "rev-parse",
     "--verify",
