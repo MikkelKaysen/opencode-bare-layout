@@ -7,9 +7,9 @@ OpenCode plugin (`bare-layout`) that manages git worktrees for repositories stor
 When the session's location is (or is inside) a bare-layout repository, the plugin:
 
 - registers a worktree strategy (`bare-layout`) so built-in worktree create / remove / list follow this layout;
-- registers slash commands that attach the session to a branch's worktree and move the session into it, so that directory's `AGENTS.md`, `opencode.json`, agents and skills get loaded.
+- registers a searchable TUI picker for linked worktrees, plus branch commands that move the session into a worktree so that directory's `AGENTS.md`, `opencode.json`, agents and skills get loaded.
 
-When the layout does not match, nothing is registered, so the plugin is safe to keep enabled globally.
+The server-side worktree strategy and branch commands are registered only when the layout matches, so they are safe to keep enabled globally. The TUI picker uses the active session's Git worktree list and reports when no other linked worktrees are available.
 
 ## Bare-layout requirements
 
@@ -24,7 +24,8 @@ Detection requires that the git common dir is a bare repository and every linked
 
 ## Commands
 
-- `/worktree:existing <query>` — attach to an existing branch's worktree, creating the worktree if it does not exist yet. The query is resolved against local branches (`refs/heads`) in this order:
+- `/worktree:existing` — open a searchable selection dialog for recorded linked worktrees. Branch names are shown as titles and full recorded paths as descriptions. The bare repository, branchless/malformed entries, and the session's current directory are omitted. Selecting a worktree moves the active session to its recorded directory; cancelling leaves the session unchanged.
+- `/worktree-existing <query>` — direct branch-query compatibility path: attach to an existing branch's worktree, creating the worktree if it does not exist yet. The query is resolved against local branches (`refs/heads`) in this order:
   1. exact branch name (case-sensitive);
   2. unique case-insensitive substring of the branch name;
   3. typo-tolerant match against the branch's name components (split on `/`, `-`, `_`, `.`), using edit distance where an adjacent transposition counts as one edit. Tolerance is conservative: queries under 5 characters get none, 5–8 characters allow 1 edit, longer allow 2. E.g. `321312` selects `feature/321321-somethin-some-other`.
@@ -32,13 +33,14 @@ Detection requires that the git common dir is a bare repository and every linked
   If several branches tie at any step, the command fails and lists the candidates instead of choosing; use the exact name. If nothing matches, the command fails as before and no branch is created.
 - `/worktree:new <branch> [base]` — create the branch from `base` (default: `neogit.baseBranch` git config, else `master`) and attach to it.
 
-If the `:` names are rejected by the host, the plugin retries with `worktree-existing` / `worktree-new`.
+The colon-free `/worktree-existing` command is intentionally separate from the TUI picker's `/worktree:existing` name. If the host rejects `/worktree:new`, the server plugin retries that command as `/worktree-new`.
 
 ## Package
 
 - Package name: `opencode-plugin-bare-layout`
 - Internal plugin and strategy id: `bare-layout`
-- Entry point: `./index.ts`
+- Server entry point: `./index.ts`
+- TUI entry point: `./tui.ts` (package export `opencode-plugin-bare-layout/tui`)
 - SDK dependency: `@opencode/plugin` (pinned to `2.0.14`)
 
 ## Installation

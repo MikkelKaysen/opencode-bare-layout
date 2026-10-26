@@ -8,6 +8,7 @@ import {
 import { Plugin } from "@opencode/plugin";
 import type { CommandInvocation } from "@opencode/plugin/promise/command";
 import { matchBranch } from "./branch-match.ts";
+import { parseWorktrees } from "./worktree-picker.ts";
 
 /**
  * bare-layout
@@ -25,8 +26,9 @@ import { matchBranch } from "./branch-match.ts";
  *
  *   - a worktree strategy (ctx.worktree) so the built-in worktree
  *     create / remove / list operations follow this exact layout;
- *   - /worktree:existing <branch>    — attach to an existing branch's
- *     worktree (creating the worktree if it does not exist yet);
+ *   - /worktree-existing <branch>    — direct branch query to attach to an
+ *     existing branch's worktree (creating the worktree if it does not exist);
+ *   - TUI /worktree:existing         — searchable picker for linked worktrees;
  *   - /worktree:new <branch> [base]  — create the branch from `base`
  *     (default: neogit.baseBranch, else master) and attach to it.
  *
@@ -50,22 +52,6 @@ function git(cwd: string, args: string[]): Promise<GitResult> {
       },
     );
   });
-}
-
-/** Parse `git worktree list --porcelain` into { path, branch? } entries. */
-function parseWorktrees(out: string): { path: string; branch?: string }[] {
-  const entries: { path: string; branch?: string }[] = [];
-  for (const block of out.split("\n\n")) {
-    let path: string | undefined;
-    let branch: string | undefined;
-    for (const line of block.split("\n")) {
-      if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
-      else if (line.startsWith("branch "))
-        branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
-    }
-    if (path) entries.push({ path, branch });
-  }
-  return entries;
 }
 
 function isSafeBranch(ref: string): boolean {
@@ -233,7 +219,8 @@ export default Plugin.define({
         });
       });
 
-      // Slash commands.
+      // `/worktree:existing` is reserved for the TUI picker. Keep the direct
+      // branch-query compatibility command on a distinct, hyphenated name.
       const commandDefs = (existingName: string, newName: string) => [
         {
           name: existingName,
@@ -293,7 +280,7 @@ export default Plugin.define({
 
       try {
         await ctx.command.transform((editor) => {
-          for (const def of commandDefs("worktree:existing", "worktree:new"))
+          for (const def of commandDefs("worktree-existing", "worktree:new"))
             editor.add(def);
         });
       } catch (err) {
