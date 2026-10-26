@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { resolve as resolvePath } from "node:path";
 import { Plugin } from "@opencode/plugin";
 import type { CommandInvocation } from "@opencode/plugin/promise/command";
+import { matchBranch } from "./branch-match.ts";
 
 /**
  * bare-layout
@@ -100,6 +101,17 @@ async function detectBareLayout(startDir: string): Promise<string | null> {
     if (!wt.branch || wt.path !== bareRoot + "/" + wt.branch) return null;
   }
   return bareRoot;
+}
+
+/** Lists local branch names (refs/heads), whether or not they have a worktree. */
+async function listLocalBranches(bareRoot: string): Promise<string[]> {
+  const r = await git(bareRoot, [
+    "for-each-ref",
+    "--format=%(refname:short)",
+    "refs/heads",
+  ]);
+  if (!r.ok || !r.out) return [];
+  return r.out.split("\n").map((b) => b.trim()).filter(Boolean);
 }
 
 /**
@@ -216,9 +228,17 @@ export default Plugin.define({
             prompt,
             delivery,
           }: CommandInvocation) => {
-            const branch = prompt.text.trim().split(/\s+/).filter(Boolean)[0] ?? "";
-            if (!isSafeBranch(branch))
+            const query = prompt.text.trim().split(/\s+/).filter(Boolean)[0] ?? "";
+            if (!isSafeBranch(query))
               throw new Error("usage: /" + existingName + " <branch>");
+            const branches = await listLocalBranches(bareRoot);
+            const match = matchBranch(query, branches);
+            if (match?.kind === "ambiguous")
+              throw new Error(
+                `bare-layout: "${query}" is ambiguous; matching branches: ${match.candidates.join(", ")}. Use the exact branch name.`,
+              );
+            // No match: keep the query so ensureWorktree reports the usual error.
+            const branch = match?.branch ?? query;
             const dest = await ensureWorktree(bareRoot, branch, {
               allowNew: false,
             });
