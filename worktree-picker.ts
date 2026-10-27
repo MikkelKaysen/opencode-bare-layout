@@ -34,9 +34,13 @@ export function parseWorktrees(out: string): WorktreeEntry[] {
 }
 
 /**
- * Collects the other linked worktrees, lets the user choose one, and moves
- * the specified session. The UI and Git operations are injected so the
- * selection flow can be tested without a running TUI.
+ * Lets the user choose a linked worktree with a branch, then either:
+ *   - moves the given session there (when `sessionID` is set; the session's
+ *     current worktree is omitted from the choices), or
+ *   - creates a new session in it and navigates to that session (when there
+ *     is no session; the current worktree stays in the choices).
+ * Cancelling is a no-op in both modes. The UI and Git operations are injected
+ * so the selection flow can be tested without a running TUI.
  */
 export async function pickExistingWorktree(input: {
   sessionID?: string;
@@ -44,17 +48,16 @@ export async function pickExistingWorktree(input: {
   list: (location: string) => Promise<string>;
   select: (choices: readonly WorktreeChoice[]) => Promise<string | undefined>;
   move: (sessionID: string, directory: string) => Promise<void>;
+  create: (directory: string) => Promise<{ id: string }>;
+  navigate: (sessionID: string) => void;
   toast: (message: string) => void;
 }): Promise<void> {
-  if (!input.sessionID) {
-    input.toast("Open a session before choosing an existing worktree.");
-    return;
-  }
   if (!input.location) {
-    input.toast("Could not determine the active session location.");
+    input.toast("Could not determine the active location.");
     return;
   }
   const location = input.location;
+  const moveMode = input.sessionID !== undefined;
 
   try {
     const current = resolvePath(location);
@@ -62,7 +65,7 @@ export async function pickExistingWorktree(input: {
       .filter(
         (entry): entry is WorktreeEntry & { branch: string } =>
           Boolean(entry.branch) &&
-          resolvePath(location, entry.path) !== current,
+          (!moveMode || resolvePath(location, entry.path) !== current),
       )
       .map((entry) => ({
         title: entry.branch,
@@ -72,14 +75,21 @@ export async function pickExistingWorktree(input: {
 
     if (choices.length === 0) {
       input.toast(
-        "No other linked worktrees found. Use /worktree-existing <branch> to attach to a branch.",
+        moveMode
+          ? "No other linked worktrees found."
+          : "No linked worktrees with branches found.",
       );
       return;
     }
 
     const directory = await input.select(choices);
     if (directory === undefined) return;
-    await input.move(input.sessionID, directory);
+    if (input.sessionID !== undefined) {
+      await input.move(input.sessionID, directory);
+      return;
+    }
+    const created = await input.create(directory);
+    input.navigate(created.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     input.toast(`Could not switch worktrees: ${message}`);

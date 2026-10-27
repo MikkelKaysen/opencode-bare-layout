@@ -7,7 +7,6 @@ import {
 } from "node:path";
 import { Plugin } from "@opencode/plugin";
 import type { CommandInvocation } from "@opencode/plugin/promise/command";
-import { matchBranch } from "./branch-match.ts";
 import { parseWorktrees } from "./worktree-picker.ts";
 
 /**
@@ -26,13 +25,12 @@ import { parseWorktrees } from "./worktree-picker.ts";
  *
  *   - a worktree strategy (ctx.worktree) so the built-in worktree
  *     create / remove / list operations follow this exact layout;
- *   - /worktree-existing <branch>    — direct branch query to attach to an
- *     existing branch's worktree (creating the worktree if it does not exist);
- *   - TUI /worktree:existing         — searchable picker for linked worktrees;
+ *   - TUI /worktree:existing         — searchable picker for linked worktrees
+ *     (moves the session, or opens a new session when outside a session);
  *   - /worktree:new <branch> [base]  — create the branch from `base`
  *     (default: neogit.baseBranch, else master) and attach to it.
  *
- * Both commands then move the session into the worktree directory so that
+ * /worktree:new then moves the session into the worktree directory so that
  * directory's AGENTS.md / opencode.json / agents / skills get loaded.
  *
  * When the layout does not match, nothing is registered, so the plugin is
@@ -101,17 +99,6 @@ export async function detectBareLayout(startDir: string): Promise<string | null>
     }
   }
   return bareRoot;
-}
-
-/** Lists local branch names (refs/heads), whether or not they have a worktree. */
-async function listLocalBranches(bareRoot: string): Promise<string[]> {
-  const r = await git(bareRoot, [
-    "for-each-ref",
-    "--format=%(refname:short)",
-    "refs/heads",
-  ]);
-  if (!r.ok || !r.out) return [];
-  return r.out.split("\n").map((b) => b.trim()).filter(Boolean);
 }
 
 /**
@@ -219,37 +206,7 @@ export default Plugin.define({
         });
       });
 
-      // `/worktree:existing` is reserved for the TUI picker. Keep the direct
-      // branch-query compatibility command on a distinct, hyphenated name.
-      const commandDefs = (existingName: string, newName: string) => [
-        {
-          name: existingName,
-          description:
-            "Move the session into the worktree of an existing branch, creating the worktree if it does not exist yet. Usage: /" +
-            existingName +
-            " <branch>",
-          execute: async ({
-            sessionID,
-            prompt,
-            delivery,
-          }: CommandInvocation) => {
-            const query = prompt.text.trim().split(/\s+/).filter(Boolean)[0] ?? "";
-            if (!isSafeBranch(query))
-              throw new Error("usage: /" + existingName + " <branch>");
-            const branches = await listLocalBranches(bareRoot);
-            const match = matchBranch(query, branches);
-            if (match?.kind === "ambiguous")
-              throw new Error(
-                `bare-layout: "${query}" is ambiguous; matching branches: ${match.candidates.join(", ")}. Use the exact branch name.`,
-              );
-            // No match: keep the query so ensureWorktree reports the usual error.
-            const branch = match?.branch ?? query;
-            const dest = await ensureWorktree(bareRoot, branch, {
-              allowNew: false,
-            });
-            await ctx.session.move({ sessionID, directory: dest, delivery });
-          },
-        },
+      const commandDefs = (newName: string) => [
         {
           name: newName,
           description:
@@ -280,8 +237,7 @@ export default Plugin.define({
 
       try {
         await ctx.command.transform((editor) => {
-          for (const def of commandDefs("worktree-existing", "worktree:new"))
-            editor.add(def);
+          for (const def of commandDefs("worktree:new")) editor.add(def);
         });
       } catch (err) {
         console.error(
@@ -290,10 +246,7 @@ export default Plugin.define({
         );
         try {
           await ctx.command.transform((editor) => {
-            for (
-              const def of commandDefs("worktree-existing", "worktree-new")
-            )
-              editor.add(def);
+            for (const def of commandDefs("worktree-new")) editor.add(def);
           });
         } catch (err2) {
           console.error("[bare-layout] command registration failed:", err2);

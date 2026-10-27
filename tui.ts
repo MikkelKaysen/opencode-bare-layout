@@ -28,7 +28,8 @@ export default Plugin.define({
         {
           id: "bare-layout.worktree-existing-picker",
           title: "Choose existing worktree",
-          description: "Search and move this session to a linked worktree",
+          description:
+            "Search a linked worktree; move this session there, or open a new session in it",
           group: "Worktree",
           bind: false,
           palette: true,
@@ -40,7 +41,9 @@ export default Plugin.define({
               ? ctx.data.session.get(sessionID)
               : undefined;
             const location =
-              session?.location.directory ?? ctx.location?.directory;
+              session?.location.directory ??
+              ctx.location?.directory ??
+              ctx.data.location.default().directory;
 
             await pickExistingWorktree({
               sessionID,
@@ -53,6 +56,10 @@ export default Plugin.define({
                 }),
               move: (id, directory) =>
                 ctx.client.session.move({ sessionID: id, directory }),
+              create: (directory) =>
+                ctx.client.session.create({ location: { directory } }),
+              navigate: (id) =>
+                ctx.ui.router.navigate({ type: "session", sessionID: id }),
               toast: (message) =>
                 ctx.ui.toast.show({
                   title: "Existing worktree",
